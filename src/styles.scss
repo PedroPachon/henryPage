@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Barlow+Condensed:wght@300;400;500&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --black: #0A0A0A;
+  --white: #FFFFFF;
+  --gray: #888888;
+  --light-gray: #E8E8E8;
+  --serif: 'Cormorant Garamond', Georgia, serif;
+  --sans: 'Barlow Condensed', sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--white);
+  color: var(--black);
+  font-family: var(--sans);
+  font-weight: 300;
+  overflow-x: hidden;
+}
+
+.section-label {
+  font-size: 10px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--gray);
+  margin-bottom: 64px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--light-gray);
+  max-width: 80px;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.9s ease, transform 0.9s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
