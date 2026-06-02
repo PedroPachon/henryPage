@@ -7,6 +7,7 @@ import { PortfolioComponent } from './components/portfolio.component';
 import { AboutComponent } from './components/about.component';
 import { StyleSectionComponent } from './components/style-section.component';
 import { BookingComponent } from './components/booking.component';
+import { BodyEditorComponent } from './body-editor/body-editor.component';
 import { FooterComponent } from './components/footer.component';
 import { TranslationService } from './services/translation.service';
 
@@ -22,6 +23,7 @@ import { TranslationService } from './services/translation.service';
     AboutComponent,
     StyleSectionComponent,
     BookingComponent,
+    BodyEditorComponent,
     FooterComponent,
   ],
   template: `
@@ -36,19 +38,31 @@ import { TranslationService } from './services/translation.service';
         <app-about></app-about>
       </section>
       <app-style-section></app-style-section>
+      <section id="body-editor" class="section-padding">
+        <app-body-editor></app-body-editor>
+      </section>
       <section id="booking" class="section-padding">
         <app-booking></app-booking>
       </section>
     </main>
     <app-footer></app-footer>
   `,
-  styles: [`
-    main { position: relative; z-index: 1; }
-    .section-padding { padding: 120px 48px; }
-    @media (max-width: 768px) {
-      .section-padding { padding: 80px 24px; }
-    }
-  `]
+  styles: [
+    `
+      main {
+        position: relative;
+        z-index: 1;
+      }
+      .section-padding {
+        padding: 120px 48px;
+      }
+      @media (max-width: 768px) {
+        .section-padding {
+          padding: 80px 24px;
+        }
+      }
+    `,
+  ],
 })
 export class App implements AfterViewInit {
   private translationService = inject(TranslationService);
@@ -59,11 +73,14 @@ export class App implements AfterViewInit {
 
   private initRevealAnimations(): void {
     const reveals = document.querySelectorAll('.reveal');
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) entry.target.classList.add('visible');
-      });
-    }, { threshold: 0.12 });
-    reveals.forEach(el => observer.observe(el));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) entry.target.classList.add('visible');
+        });
+      },
+      { threshold: 0.12 },
+    );
+    reveals.forEach((el) => observer.observe(el));
   }
 }
