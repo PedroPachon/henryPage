@@ -144,7 +144,60 @@
   font-weight: 500;
 }
 
-.range-control,
+.part-move-panel {
+  border: 1px solid var(--light-gray);
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+
+  > span {
+    color: var(--gray);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  p {
+    color: var(--gray);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+}
+
+.move-pad {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+
+  button {
+    letter-spacing: 0.08em;
+    padding-inline: 8px;
+  }
+
+  button:first-child,
+  button:last-child {
+    grid-column: 2;
+  }
+}
+
+.view-toggle {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+
+  button {
+    background: transparent;
+    color: var(--black);
+    letter-spacing: 0.15em;
+  }
+
+  button.active,
+  button:hover {
+    background: var(--black);
+    color: var(--white);
+  }
+}
+
 .json-area {
   display: grid;
   gap: 10px;

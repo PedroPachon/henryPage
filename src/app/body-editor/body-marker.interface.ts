@@ -16,8 +16,17 @@ export interface TattooDecal {
   locked: boolean;
 }
 
-export interface TattooDecalDocument {
-  decals: TattooDecal[];
+export interface BodyPartOffset {
+  x: number;
+  y: number;
+}
+
+export type BodyPartOffsets = Partial<Record<BodyPart, BodyPartOffset>>;
+
+export interface BodyMarkerDocument {
+  front: BodyMarker[];
+  back: BodyMarker[];
+  partOffsets?: Partial<Record<BodyView, BodyPartOffsets>>;
 }
 
 export interface Vector3Value {

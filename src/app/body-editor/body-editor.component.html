@@ -38,34 +38,64 @@
         Decal activo: <strong>{{ decal.locked ? 'bloqueado' : 'en edición' }}</strong>
       </div>
 
-      <label class="range-control">
-        <span>Tamaño decal</span>
-        <input
-          type="range"
-          min="0.12"
-          max="1.2"
-          step="0.01"
-          [ngModel]="selectedDecalSize"
-          [disabled]="!selectedDecal || selectedDecal.locked"
-          (ngModelChange)="setSelectedDecalSize($event)"
-        />
-      </label>
+      <div class="selected-info" *ngIf="selectedMarkerId">
+        Imagen activa en <strong>{{ selectedMarkerLabel() }}</strong> ·
+        {{ selectedMarkerLocked() ? 'bloqueada' : 'en edición' }}
+      </div>
 
-      <label class="range-control">
-        <span>Rotación decal</span>
-        <input
-          type="range"
-          min="-180"
-          max="180"
-          step="1"
-          [ngModel]="selectedDecalRotation"
-          [disabled]="!selectedDecal || selectedDecal.locked"
-          (ngModelChange)="setSelectedDecalRotation($event)"
-        />
-      </label>
+      <button type="button" [disabled]="!selectedMarkerId" (click)="toggleSelectedMarkerLock()">
+        {{ selectedMarkerLocked() ? 'Desbloquear imagen' : 'Bloquear imagen' }}
+      </button>
 
-      <button type="button" [disabled]="!selectedDecal" (click)="toggleSelectedDecalLock()">
-        {{ selectedDecal?.locked ? 'Desbloquear decal' : 'Bloquear decal' }}
+      <div class="part-move-panel" aria-label="Mover zona corporal seleccionada">
+        <span>Mover zona corporal</span>
+        <div class="move-pad">
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(0, -8)"
+            aria-label="Mover arriba"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(-8, 0)"
+            aria-label="Mover izquierda"
+          >
+            ←
+          </button>
+          <button type="button" [disabled]="!selectedBodyPart" (click)="resetSelectedBodyPart()">
+            Centro
+          </button>
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(8, 0)"
+            aria-label="Mover derecha"
+          >
+            →
+          </button>
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(0, 8)"
+            aria-label="Mover abajo"
+          >
+            ↓
+          </button>
+        </div>
+        <p>Bloquea la imagen para que siga a la zona al moverla.</p>
+      </div>
+
+      <button
+        type="button"
+        class="danger"
+        [disabled]="!selectedMarkerId"
+        (click)="deleteSelectedMarker()"
+      >
+        Eliminar imagen seleccionada
       </button>
 
       <label class="range-control">
@@ -112,10 +142,65 @@
       <p class="status-message" *ngIf="statusMessage">{{ statusMessage }}</p>
     </aside>
 
-    <div class="visual-panel" aria-label="Modelo 3D interactivo para tattoos">
-      <div class="three-frame">
-        <div class="three-host" #threeHost></div>
-        <div class="canvas-hint">Click para aplicar · arrastra para girar · rueda para zoom</div>
+    <div class="visual-panel" aria-label="Editor visual del cuerpo">
+      <div class="canvas-frame" #frame>
+        <svg
+          class="body-svg"
+          viewBox="0 0 360 640"
+          role="img"
+          [attr.aria-label]="
+            currentView === 'front' ? 'Silueta humana frontal' : 'Silueta humana trasera'
+          "
+        >
+          <defs>
+            <linearGradient id="bodyShade" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0" stop-color="#f7f3ef"></stop>
+              <stop offset="1" stop-color="#d8d1ca"></stop>
+            </linearGradient>
+          </defs>
+          <g class="silhouette" *ngIf="currentView === 'front'; else backSilhouette">
+            <ellipse cx="180" cy="55" rx="35" ry="42"></ellipse>
+            <path
+              d="M158 96 Q180 112 202 96 L215 135 Q245 150 255 202 L270 318 Q274 344 252 348 Q234 350 228 323 L212 220 L208 340 L224 584 Q226 610 202 612 Q180 613 177 588 L168 386 L159 588 Q156 613 134 612 Q110 610 112 584 L128 340 L124 220 L108 323 Q102 350 84 348 Q62 344 66 318 L81 202 Q91 150 121 135 Z"
+            ></path>
+          </g>
+          <ng-template #backSilhouette>
+            <g class="silhouette">
+              <ellipse cx="180" cy="55" rx="35" ry="42"></ellipse>
+              <path
+                d="M158 96 Q180 106 202 96 L218 137 Q247 151 256 205 L270 318 Q274 344 252 348 Q233 350 227 323 L211 219 L206 340 L224 584 Q226 610 202 612 Q180 613 177 588 L168 386 L159 588 Q156 613 134 612 Q110 610 112 584 L130 340 L125 219 L109 323 Q103 350 84 348 Q62 344 66 318 L80 205 Q89 151 118 137 Z"
+              ></path>
+              <path class="spine-line" d="M180 115 C176 170 177 235 180 320"></path>
+            </g>
+          </ng-template>
+        </svg>
+
+        <div class="konva-host" #stageContainer></div>
+
+        <svg
+          class="zone-overlay"
+          [class.disabled]="selectedMarkerId"
+          viewBox="0 0 360 640"
+          aria-label="Zonas corporales seleccionables"
+        >
+          <path
+            *ngFor="let zone of activeZones"
+            class="body-zone"
+            [attr.id]="zone.id"
+            [attr.d]="zone.path"
+            [attr.transform]="bodyPartTransform(zone.id)"
+            [attr.aria-label]="zone.label"
+            [class.hovered]="hoveredBodyPart === zone.id"
+            [class.selected]="selectedBodyPart === zone.id"
+            tabindex="0"
+            role="button"
+            (mouseenter)="hoveredBodyPart = zone.id"
+            (mouseleave)="hoveredBodyPart = null"
+            (click)="placePendingImage(zone.id)"
+            (keydown.enter)="placePendingImage(zone.id)"
+            (keydown.space)="placePendingImage(zone.id)"
+          ></path>
+        </svg>
       </div>
     </div>
   </div>
