@@ -9,6 +9,7 @@ import {
   inject,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { BodyPart, BodyZone, TattooDecal, TattooDecalDocument } from './body-marker.interface';
 import {
   BodyMarker,
   BodyMarkerDocument,
@@ -36,113 +37,50 @@ import {
   styleUrl: './body-editor.component.scss',
 })
 export class BodyEditorComponent implements AfterViewInit, OnDestroy {
-  @ViewChild('stageContainer', { static: true })
-  private stageContainer!: ElementRef<HTMLDivElement>;
-  @ViewChild('frame', { static: true }) private frame!: ElementRef<HTMLDivElement>;
+  @ViewChild('threeHost', { static: true }) private threeHost!: ElementRef<HTMLDivElement>;
 
-  private readonly konvaLoader = inject(KonvaLoaderService);
-  private readonly baseWidth = 360;
-  private readonly baseHeight = 640;
-  private readonly markerNodes = new Map<string, KonvaImageNode>();
-  private readonly imageDisplaySize = 112;
-  private konva?: KonvaNamespace;
-  private stage?: KonvaStage;
-  private imageLayer?: KonvaLayer;
-  private transformerLayer?: KonvaLayer;
-  private transformer?: KonvaTransformer;
+  private readonly threeLoader = inject(ThreeLoaderService);
+  private readonly decals = new Map<string, DecalRuntime>();
+  private readonly bodyParts = new Map<BodyPart, BodyPartRuntime>();
+  private readonly raycastMeshes: ThreeMesh[] = [];
+  private readonly decalMeshes: ThreeMesh[] = [];
+  private three?: ThreeNamespace;
+  private scene?: ThreeScene;
+  private camera?: ThreePerspectiveCamera;
+  private renderer?: ThreeRenderer;
+  private raycaster?: ThreeRaycaster;
+  private pointer?: ThreeVector2;
+  private modelGroup?: ThreeGroup;
+  private pendingTexture?: ThreeTexture;
   private resizeObserver?: ResizeObserver;
+  private animationFrameId = 0;
+  private isDraggingModel = false;
+  private dragStarted = false;
+  private dragStart = { x: 0, y: 0 };
+  private modelRotation = { x: 0, y: 0 };
+  private cameraDistance = 5.2;
 
-  readonly zones: Record<BodyView, BodyZone[]> = {
-    front: [
-      {
-        id: 'neck',
-        label: 'Cuello',
-        path: 'M154 92 L206 92 L214 135 Q180 154 146 135 Z',
-        center: { x: 180, y: 119 },
-      },
-      {
-        id: 'chest',
-        label: 'Pecho',
-        path: 'M121 135 Q180 165 239 135 L224 246 Q180 266 136 246 Z',
-        center: { x: 180, y: 196 },
-      },
-      {
-        id: 'left-arm',
-        label: 'Brazo izquierdo',
-        path: 'M80 203 Q91 151 121 135 L127 219 L108 323 Q102 350 84 348 Q62 344 66 318 Z',
-        center: { x: 98, y: 249 },
-      },
-      {
-        id: 'right-arm',
-        label: 'Brazo derecho',
-        path: 'M239 135 Q249 151 255 202 L270 318 Q274 344 252 348 Q234 350 228 323 L209 219 L215 135 Z',
-        center: { x: 262, y: 249 },
-      },
-      {
-        id: 'left-leg',
-        label: 'Pierna izquierda',
-        path: 'M128 340 L168 340 L159 588 Q156 613 134 612 Q110 610 112 584 Z',
-        center: { x: 143, y: 473 },
-      },
-      {
-        id: 'right-leg',
-        label: 'Pierna derecha',
-        path: 'M168 340 L208 340 L224 584 Q226 610 202 612 Q180 613 177 588 Z',
-        center: { x: 197, y: 473 },
-      },
-    ],
-    back: [
-      {
-        id: 'neck',
-        label: 'Cuello',
-        path: 'M154 92 L206 92 L218 137 Q180 150 142 137 Z',
-        center: { x: 180, y: 119 },
-      },
-      {
-        id: 'back',
-        label: 'Espalda',
-        path: 'M118 137 Q180 168 218 137 L211 262 Q180 286 130 262 Z',
-        center: { x: 180, y: 206 },
-      },
-      {
-        id: 'left-arm',
-        label: 'Brazo izquierdo',
-        path: 'M80 205 Q89 151 118 137 L125 219 L109 323 Q103 350 84 348 Q62 344 66 318 Z',
-        center: { x: 98, y: 249 },
-      },
-      {
-        id: 'right-arm',
-        label: 'Brazo derecho',
-        path: 'M218 137 Q247 151 256 205 L270 318 Q274 344 252 348 Q233 350 227 323 L211 219 Z',
-        center: { x: 262, y: 249 },
-      },
-      {
-        id: 'left-leg',
-        label: 'Pierna izquierda',
-        path: 'M130 340 L168 340 L159 588 Q156 613 134 612 Q110 610 112 584 Z',
-        center: { x: 143, y: 473 },
-      },
-      {
-        id: 'right-leg',
-        label: 'Pierna derecha',
-        path: 'M168 340 L206 340 L224 584 Q226 610 202 612 Q180 613 177 588 Z',
-        center: { x: 197, y: 473 },
-      },
-    ],
-  };
+  readonly zones: BodyZone[] = [
+    { id: 'head', label: 'Cabeza' },
+    { id: 'torso', label: 'Torso' },
+    { id: 'left-arm', label: 'Brazo izquierdo' },
+    { id: 'right-arm', label: 'Brazo derecho' },
+    { id: 'left-leg', label: 'Pierna izquierda' },
+    { id: 'right-leg', label: 'Pierna derecha' },
+  ];
 
-  currentView: BodyView = 'front';
   pendingImageUrl = '';
   selectedBodyPart: BodyPart | null = null;
-  hoveredBodyPart: BodyPart | null = null;
-  selectedMarkerId: string | null = null;
+  selectedDecalId: string | null = null;
+  selectedDecalSize = 0.45;
+  selectedDecalRotation = 0;
+  selectedPartPose = 0;
   jsonValue = '';
   statusMessage = '';
 
-  markersByView: BodyMarkerDocument = {
-    front: [],
-    back: [],
-  };
+  get selectedBodyPartLabel(): string {
+    return this.zones.find((zone) => zone.id === this.selectedBodyPart)?.label ?? '';
+  }
 
   partOffsetsByView: Record<BodyView, BodyPartOffsets> = {
     front: {},
@@ -154,32 +92,26 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
-    void this.initializeKonva();
+    void this.initializeThree();
   }
 
   ngOnDestroy(): void {
+    cancelAnimationFrame(this.animationFrameId);
     this.resizeObserver?.disconnect();
-    this.stage?.destroy();
+    this.disposeDecals();
+    this.raycastMeshes.forEach((mesh) => {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    });
+    this.renderer?.dispose();
   }
 
   @HostListener('window:keydown', ['$event'])
   onKeyDown(event: KeyboardEvent): void {
-    if ((event.key === 'Delete' || event.key === 'Backspace') && this.selectedMarkerId) {
+    if ((event.key === 'Delete' || event.key === 'Backspace') && this.selectedDecalId) {
       event.preventDefault();
-      this.deleteSelectedMarker();
+      this.deleteSelectedDecal();
     }
-  }
-
-  setView(view: BodyView): void {
-    if (this.currentView === view) {
-      return;
-    }
-
-    this.currentView = view;
-    this.selectedBodyPart = null;
-    this.hoveredBodyPart = null;
-    this.clearSelection();
-    this.renderMarkersForCurrentView();
   }
 
   onImageSelected(event: Event): void {
@@ -189,8 +121,8 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (!['image/png', 'image/jpeg'].includes(file.type)) {
-      this.statusMessage = 'Solo se admiten imágenes PNG o JPG.';
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      this.statusMessage = 'Solo se admiten imágenes PNG, JPG o WebP.';
       input.value = '';
       return;
     }
@@ -200,24 +132,40 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       const result = reader.result;
       if (typeof result === 'string') {
         this.pendingImageUrl = result;
-        this.statusMessage = 'Imagen cargada. Selecciona una zona corporal.';
+        this.loadPendingTexture(result);
+        this.statusMessage =
+          'Tattoo cargado. Haz click sobre el modelo 3D para aplicarlo como decal.';
       }
     });
     reader.readAsDataURL(file);
     input.value = '';
   }
 
-  placePendingImage(bodyPart: BodyPart): void {
-    this.selectedBodyPart = bodyPart;
-
-    if (!this.pendingImageUrl) {
-      this.statusMessage = 'Sube una imagen PNG o JPG antes de seleccionar la zona.';
+  setSelectedDecalSize(size: number | string): void {
+    const decal = this.selectedDecal;
+    if (!decal || decal.locked) {
       return;
     }
 
-    const zone = this.activeZones.find((item) => item.id === bodyPart);
-    if (!zone) {
-      this.statusMessage = 'La zona seleccionada no está disponible en esta vista.';
+    decal.size = this.round(Number(size));
+    this.selectedDecalSize = decal.size;
+    this.rebuildDecal(decal.id);
+  }
+
+  setSelectedDecalRotation(rotation: number | string): void {
+    const decal = this.selectedDecal;
+    if (!decal || decal.locked) {
+      return;
+    }
+
+    decal.rotation = this.round(Number(rotation));
+    this.selectedDecalRotation = decal.rotation;
+    this.rebuildDecal(decal.id);
+  }
+
+  toggleSelectedDecalLock(): void {
+    const decal = this.selectedDecal;
+    if (!decal) {
       return;
     }
 
@@ -233,25 +181,26 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       locked: false,
     };
 
-    this.markersByView[this.currentView] = [...this.markersByView[this.currentView], marker];
-    this.addMarkerNode(marker, true);
-    this.statusMessage = `${zone.label}: imagen colocada. Puedes arrastrarla, escalarla o rotarla.`;
+    this.removeDecal(this.selectedDecalId);
+    this.selectedDecalId = null;
+    this.statusMessage = 'Decal eliminado.';
   }
 
-  deleteSelectedMarker(): void {
-    if (!this.selectedMarkerId) {
+  clearDecals(): void {
+    this.disposeDecals();
+    this.selectedDecalId = null;
+    this.jsonValue = '';
+    this.statusMessage = 'Todos los decals se han eliminado.';
+  }
+
+  setSelectedPartPose(value: number | string): void {
+    if (!this.selectedBodyPart) {
       return;
     }
 
-    const markerId = this.selectedMarkerId;
-    this.markersByView[this.currentView] = this.markersByView[this.currentView].filter(
-      (marker) => marker.id !== markerId,
-    );
-    this.markerNodes.get(markerId)?.destroy();
-    this.markerNodes.delete(markerId);
-    this.clearSelection();
-    this.imageLayer?.batchDraw();
-    this.statusMessage = 'Imagen eliminada.';
+    const pose = Number(value);
+    this.selectedPartPose = pose;
+    this.applyPartPose(this.selectedBodyPart, pose);
   }
 
   exportMarkers(): void {
@@ -267,7 +216,7 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
     this.statusMessage = 'JSON exportado con todos los marcadores frontales y traseros.';
   }
 
-  importMarkers(): void {
+  importDecals(): void {
     const parsed = this.parseImportedJson(this.jsonValue);
     if (!parsed) {
       return;
@@ -352,89 +301,266 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       return '';
     }
 
-    return this.activeZones.find((zone) => zone.id === this.selectedBodyPart)?.label ?? '';
+    const deltaX = event.clientX - this.dragStart.x;
+    const deltaY = event.clientY - this.dragStart.y;
+    if (Math.hypot(deltaX, deltaY) < 4 && !this.dragStarted) {
+      return;
+    }
+
+    this.dragStarted = true;
+    this.modelRotation.y += deltaX * 0.008;
+    this.modelRotation.x = this.clamp(this.modelRotation.x + deltaY * 0.006, -0.7, 0.7);
+    this.modelGroup.rotation.set(this.modelRotation.x, this.modelRotation.y, 0);
+    this.dragStart = { x: event.clientX, y: event.clientY };
   }
 
-  private async initializeKonva(): Promise<void> {
+  onCanvasPointerUp(event: PointerEvent): void {
+    this.renderer?.domElement.releasePointerCapture(event.pointerId);
+    this.isDraggingModel = false;
+    if (!this.dragStarted) {
+      this.handleCanvasClick(event);
+    }
+  }
+
+  onCanvasWheel(event: WheelEvent): void {
+    event.preventDefault();
+    this.cameraDistance = this.clamp(this.cameraDistance + event.deltaY * 0.004, 3.2, 7.5);
+    this.updateCameraDistance();
+  }
+
+  private async initializeThree(): Promise<void> {
     try {
-      this.konva = await this.konvaLoader.load();
+      this.three = await this.threeLoader.load();
     } catch {
-      this.statusMessage = 'No se pudo cargar Konva.js. Revisa la conexión e inténtalo de nuevo.';
+      this.statusMessage = 'No se pudo cargar Three.js. Revisa la conexión e inténtalo de nuevo.';
       return;
     }
 
-    this.stage = new this.konva.Stage({
-      container: this.stageContainer.nativeElement,
-      width: this.baseWidth,
-      height: this.baseHeight,
-    });
-    this.imageLayer = new this.konva.Layer();
-    this.transformerLayer = new this.konva.Layer();
-    this.transformer = new this.konva.Transformer({
-      rotateEnabled: true,
-      enabledAnchors: [
-        'top-left',
-        'top-right',
-        'bottom-left',
-        'bottom-right',
-        'middle-left',
-        'middle-right',
-        'top-center',
-        'bottom-center',
-      ],
-      keepRatio: false,
-    });
+    this.scene = new this.three.Scene();
+    this.scene.background = new this.three.Color('#f5f1ed');
+    this.camera = new this.three.PerspectiveCamera(42, 1, 0.1, 100);
+    this.camera.position.set(0, 1.15, this.cameraDistance);
+    this.camera.lookAt(0, 0.9, 0);
+    this.renderer = new this.three.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.threeHost.nativeElement.appendChild(this.renderer.domElement);
+    this.raycaster = new this.three.Raycaster();
+    this.pointer = new this.three.Vector2();
 
-    this.transformerLayer.add(this.transformer);
-    this.stage.add(this.imageLayer);
-    this.stage.add(this.transformerLayer);
-    this.stage.on('click tap', (event) => {
-      if (event.target === (this.stage as unknown)) {
-        this.clearSelection();
-      }
-    });
-
-    this.resizeObserver = new ResizeObserver(() => this.resizeStage());
-    this.resizeObserver.observe(this.frame.nativeElement);
-    this.resizeStage();
+    this.addLights();
+    this.createHumanModel();
+    this.bindRendererEvents();
+    this.resizeObserver = new ResizeObserver(() => this.resizeRenderer());
+    this.resizeObserver.observe(this.threeHost.nativeElement);
+    this.resizeRenderer();
+    this.animate();
   }
 
-  private resizeStage(): void {
-    if (!this.stage) {
+  private bindRendererEvents(): void {
+    if (!this.renderer) {
       return;
     }
 
-    const width = this.frame.nativeElement.clientWidth;
-    const height = width * (this.baseHeight / this.baseWidth);
-    const scale = width / this.baseWidth;
-    this.stage.width(width);
-    this.stage.height(height);
-    this.stage.scale({ x: scale, y: scale });
-    this.stage.draw();
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('pointerdown', (event) => this.onCanvasPointerDown(event));
+    canvas.addEventListener('pointermove', (event) => this.onCanvasPointerMove(event));
+    canvas.addEventListener('pointerup', (event) => this.onCanvasPointerUp(event));
+    canvas.addEventListener('wheel', (event) => this.onCanvasWheel(event), { passive: false });
   }
 
-  private renderMarkersForCurrentView(): void {
-    if (!this.imageLayer || !this.transformerLayer) {
+  private addLights(): void {
+    if (!this.three || !this.scene) {
       return;
     }
 
-    this.markerNodes.clear();
-    this.imageLayer.destroyChildren();
-    this.markersByView[this.currentView].forEach((marker) => this.addMarkerNode(marker, false));
-    this.imageLayer.batchDraw();
-    this.transformerLayer.batchDraw();
+    const ambient = new this.three.AmbientLight(0xffffff, 0.72);
+    const key = new this.three.DirectionalLight(0xffffff, 1.45);
+    key.position.set(3, 4, 5);
+    const fill = new this.three.DirectionalLight(0xd7c6b8, 0.75);
+    fill.position.set(-4, 2, -3);
+    this.scene.add(ambient);
+    this.scene.add(key);
+    this.scene.add(fill);
   }
 
-  private addMarkerNode(marker: BodyMarker, selectAfterLoad: boolean): void {
-    if (!this.konva || !this.imageLayer) {
+  private createHumanModel(): void {
+    if (!this.three || !this.scene) {
       return;
     }
 
-    const imageElement = new Image();
-    imageElement.addEventListener('load', () => {
-      if (!this.konva || !this.imageLayer) {
-        return;
-      }
+    const material = new this.three.MeshStandardMaterial({
+      color: 0xd8c9bd,
+      roughness: 0.62,
+      metalness: 0.03,
+    });
+    this.modelGroup = new this.three.Group();
+    this.scene.add(this.modelGroup);
+
+    this.addBodyPart('head', 'Cabeza', new this.three.SphereGeometry(0.34, 36, 24), material, {
+      position: [0, 2.58, 0],
+      scale: [0.92, 1.1, 0.9],
+    });
+    this.addBodyPart(
+      'torso',
+      'Torso',
+      new this.three.CapsuleGeometry(0.54, 1.22, 18, 34),
+      material,
+      {
+        position: [0, 1.38, 0],
+        scale: [1.05, 1, 0.62],
+      },
+    );
+    this.addBodyPart(
+      'left-arm',
+      'Brazo izquierdo',
+      new this.three.CapsuleGeometry(0.16, 1.45, 14, 24),
+      material,
+      {
+        position: [-0.74, 1.28, 0],
+        rotation: [0, 0, -0.18],
+      },
+    );
+    this.addBodyPart(
+      'right-arm',
+      'Brazo derecho',
+      new this.three.CapsuleGeometry(0.16, 1.45, 14, 24),
+      material,
+      {
+        position: [0.74, 1.28, 0],
+        rotation: [0, 0, 0.18],
+      },
+    );
+    this.addBodyPart(
+      'left-leg',
+      'Pierna izquierda',
+      new this.three.CapsuleGeometry(0.2, 1.42, 14, 24),
+      material,
+      {
+        position: [-0.25, -0.38, 0],
+        rotation: [0, 0, 0.04],
+      },
+    );
+    this.addBodyPart(
+      'right-leg',
+      'Pierna derecha',
+      new this.three.CapsuleGeometry(0.2, 1.42, 14, 24),
+      material,
+      {
+        position: [0.25, -0.38, 0],
+        rotation: [0, 0, -0.04],
+      },
+    );
+  }
+
+  private addBodyPart(
+    id: BodyPart,
+    label: string,
+    geometry: ThreeGeometry,
+    material: ThreeMaterial,
+    config: {
+      position: [number, number, number];
+      rotation?: [number, number, number];
+      scale?: [number, number, number];
+    },
+  ): void {
+    if (!this.three || !this.modelGroup) {
+      return;
+    }
+
+    const mesh = new this.three.Mesh(geometry, material);
+    mesh.position.set(...config.position);
+    mesh.rotation.set(...(config.rotation ?? [0, 0, 0]));
+    mesh.scale.set(...(config.scale ?? [1, 1, 1]));
+    mesh.userData['bodyPart'] = id;
+    mesh.userData['bodyPartLabel'] = label;
+    this.modelGroup.add(mesh);
+    this.raycastMeshes.push(mesh);
+    this.bodyParts.set(id, {
+      id,
+      label,
+      mesh,
+      baseRotation: { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z },
+    });
+  }
+
+  private handleCanvasClick(event: PointerEvent): void {
+    const decalHit = this.intersect(event, this.decalMeshes)[0];
+    if (decalHit) {
+      this.selectDecal(decalHit.object.userData['decalId'] as string);
+      return;
+    }
+
+    const bodyHit = this.intersect(event, this.raycastMeshes)[0];
+    if (!bodyHit) {
+      this.selectedBodyPart = null;
+      this.selectedDecalId = null;
+      return;
+    }
+
+    const bodyPart = bodyHit.object.userData['bodyPart'] as BodyPart;
+    this.selectedBodyPart = bodyPart;
+    this.selectedPartPose = 0;
+    if (this.pendingImageUrl && this.pendingTexture) {
+      this.placeDecal(bodyHit, bodyPart);
+      return;
+    }
+
+    this.statusMessage = `${this.bodyPartLabel(bodyPart)} seleccionada. Sube un tattoo para aplicarlo aquí.`;
+  }
+
+  private intersect(event: PointerEvent, objects: ThreeMesh[]): ThreeIntersection[] {
+    if (!this.camera || !this.raycaster || !this.pointer || !this.renderer) {
+      return [];
+    }
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    return this.raycaster.intersectObjects(objects, false);
+  }
+
+  private placeDecal(hit: ThreeIntersection, bodyPart: BodyPart): void {
+    if (!this.three || !this.pendingTexture) {
+      return;
+    }
+
+    const parent = hit.object as ThreeMesh;
+    const worldNormal = this.worldNormalFromHit(hit);
+    const parentQuaternion = parent.getWorldQuaternion(new this.three.Quaternion());
+    const localNormal = worldNormal
+      .clone()
+      .applyQuaternion(parentQuaternion.clone().invert())
+      .normalize();
+    const localPosition = parent.worldToLocal(
+      hit.point.clone().add(worldNormal.clone().multiplyScalar(0.012)),
+    );
+    const decal: TattooDecal = {
+      id: this.createId(),
+      imageUrl: this.pendingImageUrl,
+      bodyPart,
+      position: this.vectorToValue(localPosition),
+      normal: this.vectorToValue(localNormal),
+      size: this.selectedDecalSize,
+      rotation: this.selectedDecalRotation,
+      locked: false,
+    };
+
+    this.createDecalRuntime(decal, parent, this.createTexture(this.pendingImageUrl));
+    this.selectDecal(decal.id);
+    this.statusMessage = `${this.bodyPartLabel(bodyPart)}: tattoo aplicado. Ajusta tamaño/rotación y bloquéalo cuando esté listo.`;
+  }
+
+  private addDecalFromData(decal: TattooDecal): void {
+    const parent = this.bodyParts.get(decal.bodyPart)?.mesh;
+    if (!parent || !this.three) {
+      return;
+    }
+
+    this.createDecalRuntime({ ...decal }, parent, this.createTexture(decal.imageUrl));
+  }
 
       const ratio = Math.min(
         this.imageDisplaySize / imageElement.naturalWidth,
@@ -468,12 +594,19 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
         this.selectMarker(marker.id);
       }
     });
-    imageElement.src = marker.imageUrl;
+    const mesh = new this.three.Mesh(geometry, material);
+    mesh.position.set(decal.position.x, decal.position.y, decal.position.z);
+    mesh.quaternion.copy(this.quaternionFromNormal(decal.normal, decal.rotation));
+    mesh.renderOrder = 10;
+    mesh.userData['decalId'] = decal.id;
+    parent.add(mesh);
+    this.decals.set(decal.id, { data: decal, mesh, material, geometry, texture, parent });
+    this.decalMeshes.push(mesh);
   }
 
-  private selectMarker(markerId: string): void {
-    const node = this.markerNodes.get(markerId);
-    if (!node || !this.transformer || !this.transformerLayer) {
+  private rebuildDecal(decalId: string): void {
+    const runtime = this.decals.get(decalId);
+    if (!runtime || !this.three) {
       return;
     }
 
@@ -484,10 +617,21 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
     this.transformerLayer.batchDraw();
   }
 
-  private clearSelection(): void {
-    this.selectedMarkerId = null;
-    this.transformer?.nodes([]);
-    this.transformerLayer?.batchDraw();
+  private removeDecal(decalId: string): void {
+    const runtime = this.decals.get(decalId);
+    if (!runtime) {
+      return;
+    }
+
+    runtime.parent.remove(runtime.mesh);
+    runtime.geometry.dispose();
+    runtime.material.dispose();
+    runtime.texture.dispose();
+    this.decals.delete(decalId);
+    const meshIndex = this.decalMeshes.indexOf(runtime.mesh);
+    if (meshIndex >= 0) {
+      this.decalMeshes.splice(meshIndex, 1);
+    }
   }
 
   private setMarkerLocked(markerId: string, locked: boolean): void {
@@ -546,36 +690,118 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
         return marker;
       }
 
-      return {
-        ...marker,
-        x: this.round(node.x()),
-        y: this.round(node.y()),
-        scaleX: this.round(node.scaleX()),
-        scaleY: this.round(node.scaleY()),
-        rotation: this.round(node.rotation()),
-      };
-    });
+  private selectDecal(decalId: string): void {
+    const decal = this.decals.get(decalId)?.data;
+    if (!decal) {
+      return;
+    }
+
+    this.selectedDecalId = decalId;
+    this.selectedBodyPart = decal.bodyPart;
+    this.selectedDecalSize = decal.size;
+    this.selectedDecalRotation = decal.rotation;
+    this.statusMessage = `Decal seleccionado en ${this.bodyPartLabel(decal.bodyPart)}.`;
   }
 
-  private syncCurrentMarkersFromNodes(): void {
-    this.markersByView[this.currentView] = this.markersByView[this.currentView].map((marker) => {
-      const node = this.markerNodes.get(marker.id);
-      if (!node) {
-        return marker;
-      }
+  private applyPartPose(bodyPart: BodyPart, pose: number): void {
+    const runtime = this.bodyParts.get(bodyPart);
+    if (!runtime) {
+      return;
+    }
 
-      return {
-        ...marker,
-        x: this.round(node.x()),
-        y: this.round(node.y()),
-        scaleX: this.round(node.scaleX()),
-        scaleY: this.round(node.scaleY()),
-        rotation: this.round(node.rotation()),
-      };
-    });
+    const radians = (pose * Math.PI) / 180;
+    runtime.mesh.rotation.set(
+      runtime.baseRotation.x,
+      runtime.baseRotation.y,
+      runtime.baseRotation.z,
+    );
+    if (bodyPart.includes('arm')) {
+      runtime.mesh.rotation.z =
+        runtime.baseRotation.z + (bodyPart === 'left-arm' ? -radians : radians);
+    } else if (bodyPart.includes('leg')) {
+      runtime.mesh.rotation.x = runtime.baseRotation.x + radians;
+    } else {
+      runtime.mesh.rotation.y = runtime.baseRotation.y + radians;
+    }
   }
 
-  private parseImportedJson(value: string): BodyMarkerDocument | null {
+  private worldNormalFromHit(hit: ThreeIntersection): ThreeVector3 {
+    const three = this.three as ThreeNamespace;
+    if (!hit.face) {
+      return new three.Vector3(0, 0, 1);
+    }
+
+    const normal = hit.face.normal.clone();
+    normal.applyQuaternion(hit.object.getWorldQuaternion(new three.Quaternion())).normalize();
+    return normal;
+  }
+
+  private quaternionFromNormal(
+    normal: { x: number; y: number; z: number },
+    rotationDegrees: number,
+  ): ThreeQuaternion {
+    const three = this.three as ThreeNamespace;
+    const normalVector = new three.Vector3(normal.x, normal.y, normal.z).normalize();
+    const quaternion = new three.Quaternion().setFromUnitVectors(
+      new three.Vector3(0, 0, 1),
+      normalVector,
+    );
+    const spin = new three.Quaternion().setFromAxisAngle(
+      new three.Vector3(0, 0, 1),
+      (rotationDegrees * Math.PI) / 180,
+    );
+    return quaternion.multiply(spin);
+  }
+
+  private loadPendingTexture(imageUrl: string): void {
+    if (!this.three) {
+      return;
+    }
+
+    this.pendingTexture?.dispose();
+    this.pendingTexture = this.createTexture(imageUrl);
+  }
+
+  private createTexture(imageUrl: string): ThreeTexture {
+    const three = this.three as ThreeNamespace;
+    const texture = new three.TextureLoader().load(imageUrl, (loadedTexture) => {
+      loadedTexture.colorSpace = three.SRGBColorSpace;
+    });
+    texture.colorSpace = three.SRGBColorSpace;
+    return texture;
+  }
+
+  private resizeRenderer(): void {
+    if (!this.renderer || !this.camera) {
+      return;
+    }
+
+    const width = this.threeHost.nativeElement.clientWidth;
+    const height = this.threeHost.nativeElement.clientHeight;
+    this.renderer.setSize(width, height);
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+  }
+
+  private updateCameraDistance(): void {
+    if (!this.camera) {
+      return;
+    }
+
+    this.camera.position.set(0, 1.15, this.cameraDistance);
+    this.camera.lookAt(0, 0.9, 0);
+  }
+
+  private animate(): void {
+    if (!this.renderer || !this.scene || !this.camera) {
+      return;
+    }
+
+    this.renderer.render(this.scene, this.camera);
+    this.animationFrameId = requestAnimationFrame(() => this.animate());
+  }
+
+  private parseImportedJson(value: string): TattooDecalDocument | null {
     if (!value.trim()) {
       this.statusMessage = 'Pega un JSON exportado antes de importar.';
       return null;
@@ -583,8 +809,8 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
 
     try {
       const parsed = JSON.parse(value) as unknown;
-      if (!this.isBodyMarkerDocument(parsed)) {
-        this.statusMessage = 'El JSON no cumple la estructura esperada de marcadores.';
+      if (!this.isTattooDecalDocument(parsed)) {
+        this.statusMessage = 'El JSON no cumple la estructura esperada para decals 3D.';
         return null;
       }
       return parsed;
@@ -615,7 +841,7 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
     return value.every((marker) => this.isBodyMarker(marker, allowedParts));
   }
 
-  private isBodyMarker(value: unknown, allowedParts: Set<BodyPart>): value is BodyMarker {
+  private isTattooDecal(value: unknown): value is TattooDecal {
     if (!this.isRecord(value)) {
       return false;
     }
@@ -627,9 +853,7 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       allowedParts.has(value['bodyPart'] as BodyPart) &&
       this.isFiniteNumber(value['x']) &&
       this.isFiniteNumber(value['y']) &&
-      this.isFiniteNumber(value['scaleX']) &&
-      this.isFiniteNumber(value['scaleY']) &&
-      this.isFiniteNumber(value['rotation'])
+      this.isFiniteNumber(value['z'])
     );
   }
 
@@ -700,12 +924,28 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
     return typeof value === 'number' && Number.isFinite(value);
   }
 
+  private vectorToValue(vector: ThreeVector3): { x: number; y: number; z: number } {
+    return {
+      x: this.round(vector.x),
+      y: this.round(vector.y),
+      z: this.round(vector.z),
+    };
+  }
+
+  private bodyPartLabel(bodyPart: BodyPart): string {
+    return this.zones.find((zone) => zone.id === bodyPart)?.label ?? bodyPart;
+  }
+
   private createId(): string {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
       return crypto.randomUUID();
     }
 
-    return `marker-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `decal-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
   }
 
   private round(value: number): number {

@@ -1,41 +1,41 @@
 <section class="body-editor-section reveal" id="body-editor" aria-labelledby="body-editor-title">
-  <div class="section-label">Tattoo visualizer</div>
+  <div class="section-label">Three.js tattoo visualizer</div>
   <header class="editor-heading">
-    <p>Editor visual</p>
-    <h2 id="body-editor-title">Coloca tu diseño sobre el cuerpo</h2>
+    <p>Editor 3D</p>
+    <h2 id="body-editor-title">Prueba tu tattoo sobre un modelo 3D</h2>
     <span
-      >Sube una imagen PNG o JPG, selecciona una zona corporal y ajusta el diseño con Konva.</span
+      >Sube un diseño, haz click en el cuerpo para aplicarlo como decal, edita tamaño/rotación y
+      bloquea el resultado para girar el modelo.</span
     >
   </header>
 
   <div class="editor-shell">
-    <aside class="toolbar" aria-label="Herramientas del editor corporal">
+    <aside class="toolbar" aria-label="Herramientas del editor 3D">
       <h3>Herramientas</h3>
 
       <label class="upload-control">
-        <span>Subir imagen</span>
-        <input type="file" accept="image/png,image/jpeg" (change)="onImageSelected($event)" />
+        <span>Upload tattoo</span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          (change)="onImageSelected($event)"
+        />
       </label>
 
       <div class="preview-card" *ngIf="pendingImageUrl; else noImageSelected">
-        <img [src]="pendingImageUrl" alt="Imagen lista para colocar" />
-        <p>Haz click en una zona corporal para colocarla.</p>
+        <img [src]="pendingImageUrl" alt="Tattoo listo para aplicar" />
+        <p>Haz click sobre el modelo para aplicarlo a la piel.</p>
       </div>
       <ng-template #noImageSelected>
-        <p class="helper-text">Selecciona una imagen antes de pulsar una zona corporal.</p>
+        <p class="helper-text">Sube una imagen y después pulsa sobre una zona del cuerpo 3D.</p>
       </ng-template>
 
-      <div class="view-toggle" role="group" aria-label="Cambiar vista del cuerpo">
-        <button type="button" [class.active]="currentView === 'front'" (click)="setView('front')">
-          Vista frontal
-        </button>
-        <button type="button" [class.active]="currentView === 'back'" (click)="setView('back')">
-          Vista trasera
-        </button>
+      <div class="selected-info" *ngIf="selectedBodyPartLabel">
+        Zona seleccionada: <strong>{{ selectedBodyPartLabel }}</strong>
       </div>
 
-      <div class="selected-info" *ngIf="selectedBodyPartLabel()">
-        Zona seleccionada: <strong>{{ selectedBodyPartLabel() }}</strong>
+      <div class="selected-info" *ngIf="selectedDecal as decal">
+        Decal activo: <strong>{{ decal.locked ? 'bloqueado' : 'en edición' }}</strong>
       </div>
 
       <div class="selected-info" *ngIf="selectedMarkerId">
@@ -98,14 +98,43 @@
         Eliminar imagen seleccionada
       </button>
 
-      <button type="button" (click)="exportMarkers()">Exportar</button>
-      <button type="button" (click)="importMarkers()">Importar</button>
+      <label class="range-control">
+        <span>Posar zona seleccionada</span>
+        <input
+          type="range"
+          min="-35"
+          max="35"
+          step="1"
+          [ngModel]="selectedPartPose"
+          [disabled]="!selectedBodyPart"
+          (ngModelChange)="setSelectedPartPose($event)"
+        />
+      </label>
+
+      <div class="action-grid">
+        <button
+          type="button"
+          class="danger"
+          [disabled]="!selectedDecal"
+          (click)="deleteSelectedDecal()"
+        >
+          Undo decal
+        </button>
+        <button type="button" class="danger" [disabled]="!selectedDecal" (click)="clearDecals()">
+          Clear
+        </button>
+      </div>
+
+      <div class="action-grid">
+        <button type="button" (click)="exportDecals()">Exportar</button>
+        <button type="button" (click)="importDecals()">Importar</button>
+      </div>
 
       <label class="json-area">
-        <span>JSON de marcadores</span>
+        <span>JSON de decals</span>
         <textarea
           [(ngModel)]="jsonValue"
-          rows="9"
+          rows="8"
           placeholder="Exporta o pega aquí el JSON para importar"
         ></textarea>
       </label>
