@@ -1,60 +1,110 @@
 <section class="body-editor-section reveal" id="body-editor" aria-labelledby="body-editor-title">
-  <div class="section-label">Tattoo visualizer</div>
+  <div class="section-label">Three.js tattoo visualizer</div>
   <header class="editor-heading">
-    <p>Editor visual</p>
-    <h2 id="body-editor-title">Coloca tu diseño sobre el cuerpo</h2>
+    <p>Editor 3D</p>
+    <h2 id="body-editor-title">Prueba tu tattoo sobre un modelo 3D</h2>
     <span
-      >Sube una imagen PNG o JPG, selecciona una zona corporal y ajusta el diseño con Konva.</span
+      >Sube un diseño, haz click en el cuerpo para aplicarlo como decal, edita tamaño/rotación y
+      bloquea el resultado para girar el modelo.</span
     >
   </header>
 
   <div class="editor-shell">
-    <aside class="toolbar" aria-label="Herramientas del editor corporal">
+    <aside class="toolbar" aria-label="Herramientas del editor 3D">
       <h3>Herramientas</h3>
 
       <label class="upload-control">
-        <span>Subir imagen</span>
-        <input type="file" accept="image/png,image/jpeg" (change)="onImageSelected($event)" />
+        <span>Upload tattoo</span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          (change)="onImageSelected($event)"
+        />
       </label>
 
       <div class="preview-card" *ngIf="pendingImageUrl; else noImageSelected">
-        <img [src]="pendingImageUrl" alt="Imagen lista para colocar" />
-        <p>Haz click en una zona corporal para colocarla.</p>
+        <img [src]="pendingImageUrl" alt="Tattoo listo para aplicar" />
+        <p>Haz click sobre el modelo para aplicarlo a la piel.</p>
       </div>
       <ng-template #noImageSelected>
-        <p class="helper-text">Selecciona una imagen antes de pulsar una zona corporal.</p>
+        <p class="helper-text">Sube una imagen y después pulsa sobre una zona del cuerpo 3D.</p>
       </ng-template>
 
-      <div class="view-toggle" role="group" aria-label="Cambiar vista del cuerpo">
-        <button type="button" [class.active]="currentView === 'front'" (click)="setView('front')">
-          Vista frontal
-        </button>
-        <button type="button" [class.active]="currentView === 'back'" (click)="setView('back')">
-          Vista trasera
-        </button>
+      <div class="selected-info" *ngIf="selectedBodyPartLabel">
+        Zona seleccionada: <strong>{{ selectedBodyPartLabel }}</strong>
       </div>
 
-      <div class="selected-info" *ngIf="selectedBodyPartLabel()">
-        Zona seleccionada: <strong>{{ selectedBodyPartLabel() }}</strong>
+      <div class="selected-info" *ngIf="selectedDecal as decal">
+        Decal activo: <strong>{{ decal.locked ? 'bloqueado' : 'en edición' }}</strong>
       </div>
 
-      <button
-        type="button"
-        class="danger"
-        [disabled]="!selectedMarkerId"
-        (click)="deleteSelectedMarker()"
-      >
-        Eliminar imagen seleccionada
+      <label class="range-control">
+        <span>Tamaño decal</span>
+        <input
+          type="range"
+          min="0.12"
+          max="1.2"
+          step="0.01"
+          [ngModel]="selectedDecalSize"
+          [disabled]="!selectedDecal || selectedDecal.locked"
+          (ngModelChange)="setSelectedDecalSize($event)"
+        />
+      </label>
+
+      <label class="range-control">
+        <span>Rotación decal</span>
+        <input
+          type="range"
+          min="-180"
+          max="180"
+          step="1"
+          [ngModel]="selectedDecalRotation"
+          [disabled]="!selectedDecal || selectedDecal.locked"
+          (ngModelChange)="setSelectedDecalRotation($event)"
+        />
+      </label>
+
+      <button type="button" [disabled]="!selectedDecal" (click)="toggleSelectedDecalLock()">
+        {{ selectedDecal?.locked ? 'Desbloquear decal' : 'Bloquear decal' }}
       </button>
 
-      <button type="button" (click)="exportMarkers()">Exportar</button>
-      <button type="button" (click)="importMarkers()">Importar</button>
+      <label class="range-control">
+        <span>Posar zona seleccionada</span>
+        <input
+          type="range"
+          min="-35"
+          max="35"
+          step="1"
+          [ngModel]="selectedPartPose"
+          [disabled]="!selectedBodyPart"
+          (ngModelChange)="setSelectedPartPose($event)"
+        />
+      </label>
+
+      <div class="action-grid">
+        <button
+          type="button"
+          class="danger"
+          [disabled]="!selectedDecal"
+          (click)="deleteSelectedDecal()"
+        >
+          Undo decal
+        </button>
+        <button type="button" class="danger" [disabled]="!selectedDecal" (click)="clearDecals()">
+          Clear
+        </button>
+      </div>
+
+      <div class="action-grid">
+        <button type="button" (click)="exportDecals()">Exportar</button>
+        <button type="button" (click)="importDecals()">Importar</button>
+      </div>
 
       <label class="json-area">
-        <span>JSON de marcadores</span>
+        <span>JSON de decals</span>
         <textarea
           [(ngModel)]="jsonValue"
-          rows="9"
+          rows="8"
           placeholder="Exporta o pega aquí el JSON para importar"
         ></textarea>
       </label>
@@ -62,64 +112,10 @@
       <p class="status-message" *ngIf="statusMessage">{{ statusMessage }}</p>
     </aside>
 
-    <div class="visual-panel" aria-label="Editor visual del cuerpo">
-      <div class="canvas-frame" #frame>
-        <svg
-          class="body-svg"
-          viewBox="0 0 360 640"
-          role="img"
-          [attr.aria-label]="
-            currentView === 'front' ? 'Silueta humana frontal' : 'Silueta humana trasera'
-          "
-        >
-          <defs>
-            <linearGradient id="bodyShade" x1="0" x2="1" y1="0" y2="1">
-              <stop offset="0" stop-color="#f7f3ef"></stop>
-              <stop offset="1" stop-color="#d8d1ca"></stop>
-            </linearGradient>
-          </defs>
-          <g class="silhouette" *ngIf="currentView === 'front'; else backSilhouette">
-            <ellipse cx="180" cy="55" rx="35" ry="42"></ellipse>
-            <path
-              d="M158 96 Q180 112 202 96 L215 135 Q245 150 255 202 L270 318 Q274 344 252 348 Q234 350 228 323 L212 220 L208 340 L224 584 Q226 610 202 612 Q180 613 177 588 L168 386 L159 588 Q156 613 134 612 Q110 610 112 584 L128 340 L124 220 L108 323 Q102 350 84 348 Q62 344 66 318 L81 202 Q91 150 121 135 Z"
-            ></path>
-          </g>
-          <ng-template #backSilhouette>
-            <g class="silhouette">
-              <ellipse cx="180" cy="55" rx="35" ry="42"></ellipse>
-              <path
-                d="M158 96 Q180 106 202 96 L218 137 Q247 151 256 205 L270 318 Q274 344 252 348 Q233 350 227 323 L211 219 L206 340 L224 584 Q226 610 202 612 Q180 613 177 588 L168 386 L159 588 Q156 613 134 612 Q110 610 112 584 L130 340 L125 219 L109 323 Q103 350 84 348 Q62 344 66 318 L80 205 Q89 151 118 137 Z"
-              ></path>
-              <path class="spine-line" d="M180 115 C176 170 177 235 180 320"></path>
-            </g>
-          </ng-template>
-        </svg>
-
-        <div class="konva-host" #stageContainer></div>
-
-        <svg
-          class="zone-overlay"
-          [class.disabled]="selectedMarkerId"
-          viewBox="0 0 360 640"
-          aria-label="Zonas corporales seleccionables"
-        >
-          <path
-            *ngFor="let zone of activeZones"
-            class="body-zone"
-            [attr.id]="zone.id"
-            [attr.d]="zone.path"
-            [attr.aria-label]="zone.label"
-            [class.hovered]="hoveredBodyPart === zone.id"
-            [class.selected]="selectedBodyPart === zone.id"
-            tabindex="0"
-            role="button"
-            (mouseenter)="hoveredBodyPart = zone.id"
-            (mouseleave)="hoveredBodyPart = null"
-            (click)="placePendingImage(zone.id)"
-            (keydown.enter)="placePendingImage(zone.id)"
-            (keydown.space)="placePendingImage(zone.id)"
-          ></path>
-        </svg>
+    <div class="visual-panel" aria-label="Modelo 3D interactivo para tattoos">
+      <div class="three-frame">
+        <div class="three-host" #threeHost></div>
+        <div class="canvas-hint">Click para aplicar · arrastra para girar · rueda para zoom</div>
       </div>
     </div>
   </div>
