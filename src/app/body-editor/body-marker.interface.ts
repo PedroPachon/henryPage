@@ -18,11 +18,20 @@ export interface BodyMarker {
   scaleX: number;
   scaleY: number;
   rotation: number;
+  locked: boolean;
 }
+
+export interface BodyPartOffset {
+  x: number;
+  y: number;
+}
+
+export type BodyPartOffsets = Partial<Record<BodyPart, BodyPartOffset>>;
 
 export interface BodyMarkerDocument {
   front: BodyMarker[];
   back: BodyMarker[];
+  partOffsets?: Partial<Record<BodyView, BodyPartOffsets>>;
 }
 
 export interface BodyZone {

@@ -13,6 +13,8 @@ import {
   BodyMarker,
   BodyMarkerDocument,
   BodyPart,
+  BodyPartOffset,
+  BodyPartOffsets,
   BodyView,
   BodyZone,
 } from './body-marker.interface';
@@ -142,6 +144,11 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
     back: [],
   };
 
+  partOffsetsByView: Record<BodyView, BodyPartOffsets> = {
+    front: {},
+    back: {},
+  };
+
   get activeZones(): BodyZone[] {
     return this.zones[this.currentView];
   }
@@ -218,11 +225,12 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       id: this.createId(),
       imageUrl: this.pendingImageUrl,
       bodyPart,
-      x: zone.center.x,
-      y: zone.center.y,
+      x: zone.center.x + this.bodyPartOffset(bodyPart).x,
+      y: zone.center.y + this.bodyPartOffset(bodyPart).y,
       scaleX: 1,
       scaleY: 1,
       rotation: 0,
+      locked: false,
     };
 
     this.markersByView[this.currentView] = [...this.markersByView[this.currentView], marker];
@@ -248,7 +256,14 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
 
   exportMarkers(): void {
     this.syncCurrentMarkersFromNodes();
-    this.jsonValue = JSON.stringify(this.markersByView, null, 2);
+    this.jsonValue = JSON.stringify(
+      {
+        ...this.markersByView,
+        partOffsets: this.partOffsetsByView,
+      },
+      null,
+      2,
+    );
     this.statusMessage = 'JSON exportado con todos los marcadores frontales y traseros.';
   }
 
@@ -258,10 +273,78 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this.markersByView = parsed;
+    this.markersByView = {
+      front: this.normalizeMarkers(parsed.front),
+      back: this.normalizeMarkers(parsed.back),
+    };
+    this.partOffsetsByView = this.normalizePartOffsets(parsed.partOffsets);
     this.clearSelection();
     this.renderMarkersForCurrentView();
     this.statusMessage = 'JSON importado. Las imágenes se reconstruyeron en su posición original.';
+  }
+
+  selectedMarker(): BodyMarker | null {
+    if (!this.selectedMarkerId) {
+      return null;
+    }
+
+    return (
+      this.markersByView[this.currentView].find((marker) => marker.id === this.selectedMarkerId) ??
+      null
+    );
+  }
+
+  selectedMarkerLabel(): string {
+    const marker = this.selectedMarker();
+    if (!marker) {
+      return '';
+    }
+
+    return this.activeZones.find((zone) => zone.id === marker.bodyPart)?.label ?? '';
+  }
+
+  selectedMarkerLocked(): boolean {
+    return this.selectedMarker()?.locked ?? false;
+  }
+
+  toggleSelectedMarkerLock(): void {
+    const marker = this.selectedMarker();
+    if (!marker) {
+      return;
+    }
+
+    this.setMarkerLocked(marker.id, !marker.locked);
+  }
+
+  nudgeSelectedBodyPart(deltaX: number, deltaY: number): void {
+    if (!this.selectedBodyPart) {
+      this.statusMessage = 'Selecciona primero una zona corporal para moverla.';
+      return;
+    }
+
+    this.nudgeBodyPart(this.selectedBodyPart, deltaX, deltaY);
+  }
+
+  resetSelectedBodyPart(): void {
+    if (!this.selectedBodyPart) {
+      this.statusMessage = 'Selecciona primero una zona corporal para restablecerla.';
+      return;
+    }
+
+    this.nudgeBodyPart(
+      this.selectedBodyPart,
+      -this.bodyPartOffset(this.selectedBodyPart).x,
+      -this.bodyPartOffset(this.selectedBodyPart).y,
+    );
+  }
+
+  bodyPartTransform(bodyPart: BodyPart): string | null {
+    const offset = this.bodyPartOffset(bodyPart);
+    if (!offset.x && !offset.y) {
+      return null;
+    }
+
+    return `translate(${offset.x} ${offset.y})`;
   }
 
   selectedBodyPartLabel(): string {
@@ -372,7 +455,7 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
         scaleX: marker.scaleX,
         scaleY: marker.scaleY,
         rotation: marker.rotation,
-        draggable: true,
+        draggable: !marker.locked,
       });
 
       node.on('click tap', () => this.selectMarker(marker.id));
@@ -394,8 +477,10 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    const marker = this.markersByView[this.currentView].find((item) => item.id === markerId);
     this.selectedMarkerId = markerId;
-    this.transformer.nodes([node]);
+    this.selectedBodyPart = marker?.bodyPart ?? this.selectedBodyPart;
+    this.transformer.nodes(marker?.locked ? [] : [node]);
     this.transformerLayer.batchDraw();
   }
 
@@ -403,6 +488,56 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
     this.selectedMarkerId = null;
     this.transformer?.nodes([]);
     this.transformerLayer?.batchDraw();
+  }
+
+  private setMarkerLocked(markerId: string, locked: boolean): void {
+    this.markersByView[this.currentView] = this.markersByView[this.currentView].map((marker) =>
+      marker.id === markerId ? { ...marker, locked } : marker,
+    );
+
+    const node = this.markerNodes.get(markerId);
+    node?.draggable(!locked);
+    this.transformer?.nodes(locked || !node ? [] : [node]);
+    this.transformerLayer?.batchDraw();
+    this.statusMessage = locked
+      ? 'Imagen bloqueada. Ahora se moverá junto con su zona corporal.'
+      : 'Imagen desbloqueada. Puedes arrastrarla, escalarla y girarla otra vez.';
+  }
+
+  private nudgeBodyPart(bodyPart: BodyPart, deltaX: number, deltaY: number): void {
+    if (!deltaX && !deltaY) {
+      return;
+    }
+
+    const currentOffset = this.bodyPartOffset(bodyPart);
+    this.partOffsetsByView[this.currentView] = {
+      ...this.partOffsetsByView[this.currentView],
+      [bodyPart]: {
+        x: this.round(currentOffset.x + deltaX),
+        y: this.round(currentOffset.y + deltaY),
+      },
+    };
+
+    this.markersByView[this.currentView] = this.markersByView[this.currentView].map((marker) => {
+      if (marker.bodyPart !== bodyPart || !marker.locked) {
+        return marker;
+      }
+
+      const node = this.markerNodes.get(marker.id);
+      const x = this.round(marker.x + deltaX);
+      const y = this.round(marker.y + deltaY);
+      node?.x(x);
+      node?.y(y);
+
+      return { ...marker, x, y };
+    });
+
+    this.imageLayer?.batchDraw();
+    this.statusMessage = 'Zona movida. Las imágenes bloqueadas a esa parte del cuerpo la siguen.';
+  }
+
+  private bodyPartOffset(bodyPart: BodyPart): BodyPartOffset {
+    return this.partOffsetsByView[this.currentView][bodyPart] ?? { x: 0, y: 0 };
   }
 
   private updateMarkerFromNode(markerId: string, node: KonvaNode): void {
@@ -464,7 +599,11 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       return false;
     }
 
-    return this.isMarkerArray(value['front'], 'front') && this.isMarkerArray(value['back'], 'back');
+    return (
+      this.isMarkerArray(value['front'], 'front') &&
+      this.isMarkerArray(value['back'], 'back') &&
+      this.isOptionalPartOffsets(value['partOffsets'])
+    );
   }
 
   private isMarkerArray(value: unknown, view: BodyView): value is BodyMarker[] {
@@ -484,6 +623,7 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
     return (
       typeof value['id'] === 'string' &&
       typeof value['imageUrl'] === 'string' &&
+      (typeof value['locked'] === 'boolean' || typeof value['locked'] === 'undefined') &&
       allowedParts.has(value['bodyPart'] as BodyPart) &&
       this.isFiniteNumber(value['x']) &&
       this.isFiniteNumber(value['y']) &&
@@ -491,6 +631,65 @@ export class BodyEditorComponent implements AfterViewInit, OnDestroy {
       this.isFiniteNumber(value['scaleY']) &&
       this.isFiniteNumber(value['rotation'])
     );
+  }
+
+  private isOptionalPartOffsets(value: unknown): boolean {
+    if (typeof value === 'undefined') {
+      return true;
+    }
+
+    if (!this.isRecord(value)) {
+      return false;
+    }
+
+    return (['front', 'back'] as BodyView[]).every((view) => {
+      const offsetsForView = value[view];
+      if (typeof offsetsForView === 'undefined') {
+        return true;
+      }
+
+      if (!this.isRecord(offsetsForView)) {
+        return false;
+      }
+
+      const allowedParts = new Set(this.zones[view].map((zone) => zone.id));
+      return Object.entries(offsetsForView).every(
+        ([bodyPart, offset]) =>
+          allowedParts.has(bodyPart as BodyPart) &&
+          this.isRecord(offset) &&
+          this.isFiniteNumber(offset['x']) &&
+          this.isFiniteNumber(offset['y']),
+      );
+    });
+  }
+
+  private normalizeMarkers(markers: BodyMarker[]): BodyMarker[] {
+    return markers.map((marker) => ({
+      ...marker,
+      locked: marker.locked ?? false,
+    }));
+  }
+
+  private normalizePartOffsets(
+    value: BodyMarkerDocument['partOffsets'] | undefined,
+  ): Record<BodyView, BodyPartOffsets> {
+    const normalized: Record<BodyView, BodyPartOffsets> = { front: {}, back: {} };
+
+    (['front', 'back'] as BodyView[]).forEach((view) => {
+      this.zones[view].forEach((zone) => {
+        const offset = value?.[view]?.[zone.id];
+        if (!offset) {
+          return;
+        }
+
+        normalized[view][zone.id] = {
+          x: this.round(offset.x),
+          y: this.round(offset.y),
+        };
+      });
+    });
+
+    return normalized;
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

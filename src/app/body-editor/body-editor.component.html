@@ -38,6 +38,57 @@
         Zona seleccionada: <strong>{{ selectedBodyPartLabel() }}</strong>
       </div>
 
+      <div class="selected-info" *ngIf="selectedMarkerId">
+        Imagen activa en <strong>{{ selectedMarkerLabel() }}</strong> ·
+        {{ selectedMarkerLocked() ? 'bloqueada' : 'en edición' }}
+      </div>
+
+      <button type="button" [disabled]="!selectedMarkerId" (click)="toggleSelectedMarkerLock()">
+        {{ selectedMarkerLocked() ? 'Desbloquear imagen' : 'Bloquear imagen' }}
+      </button>
+
+      <div class="part-move-panel" aria-label="Mover zona corporal seleccionada">
+        <span>Mover zona corporal</span>
+        <div class="move-pad">
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(0, -8)"
+            aria-label="Mover arriba"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(-8, 0)"
+            aria-label="Mover izquierda"
+          >
+            ←
+          </button>
+          <button type="button" [disabled]="!selectedBodyPart" (click)="resetSelectedBodyPart()">
+            Centro
+          </button>
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(8, 0)"
+            aria-label="Mover derecha"
+          >
+            →
+          </button>
+          <button
+            type="button"
+            [disabled]="!selectedBodyPart"
+            (click)="nudgeSelectedBodyPart(0, 8)"
+            aria-label="Mover abajo"
+          >
+            ↓
+          </button>
+        </div>
+        <p>Bloquea la imagen para que siga a la zona al moverla.</p>
+      </div>
+
       <button
         type="button"
         class="danger"
@@ -108,6 +159,7 @@
             class="body-zone"
             [attr.id]="zone.id"
             [attr.d]="zone.path"
+            [attr.transform]="bodyPartTransform(zone.id)"
             [attr.aria-label]="zone.label"
             [class.hovered]="hoveredBodyPart === zone.id"
             [class.selected]="selectedBodyPart === zone.id"
